@@ -5,6 +5,7 @@ import (
 
 	"github.com/hashicorp/nomad/command"
 	"github.com/hashicorp/nomad/command/agent"
+	"github.com/hashicorp/nomad/command/simulator"
 	"github.com/mitchellh/cli"
 )
 
@@ -102,6 +103,12 @@ func Commands(metaPtr *command.Meta) map[string]cli.CommandFactory {
 
 		"spawn-daemon": func() (cli.Command, error) {
 			return &command.SpawnDaemonCommand{
+				Meta: meta,
+			}, nil
+		},
+
+		"simulator": func() (cli.Command, error) {
+			return &simulator.SimulatorCommand{
 				Meta: meta,
 			}, nil
 		},
