@@ -128,14 +128,14 @@ func Commands(metaPtr *command.Meta) map[string]cli.CommandFactory {
 			}, nil
 		},
 
-		"spawn-daemon": func() (cli.Command, error) {
-			return &command.SpawnDaemonCommand{
+		"simulator": func() (cli.Command, error) {
+			return &simulator.SimulatorCommand{
 				Meta: meta,
 			}, nil
 		},
 
-		"simulator": func() (cli.Command, error) {
-			return &simulator.SimulatorCommand{
+		"spawn-daemon": func() (cli.Command, error) {
+			return &command.SpawnDaemonCommand{
 				Meta: meta,
 			}, nil
 		},
