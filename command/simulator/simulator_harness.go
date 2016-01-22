@@ -18,61 +18,6 @@ import (
 // the scheduling process, but using our own inputted clients and jobs instead of mocked values.
 //
 
-// SimulatorHarness is a lightweight testing harness for simulating
-// schedulers. It manages a state store copy and provides the planner
-// interface. It can be extended for various testing uses.
-type SimulatorHarness struct {
-	State *state.StateStore
-
-	Planner  scheduler.Planner
-	planLock sync.Mutex
-
-	Plans       []*structs.Plan
-	Evals       []*structs.Evaluation
-	CreateEvals []*structs.Evaluation
-
-	nextIndex     uint64
-	nextIndexLock sync.Mutex
-}
-
-// NextIndex returns the next index
-func (h *SimulatorHarness) NextIndex() uint64 {
-	h.nextIndexLock.Lock()
-	defer h.nextIndexLock.Unlock()
-	idx := h.nextIndex
-	h.nextIndex += 1
-	return idx
-}
-
-// Scheduler is used to return a new scheduler from
-// a snapshot of current state using the harness for planning.
-func (h *SimulatorHarness) Scheduler(factory scheduler.Factory) scheduler.Scheduler {
-	logger := log.New(os.Stderr, "", log.LstdFlags)
-	return factory(logger, h.Snapshot(), h)
-}
-
-// Process is used to process an evaluation given a factory
-// function to create the scheduler
-func (h *SimulatorHarness) Process(factory scheduler.Factory, eval *structs.Evaluation) error {
-	sched := h.Scheduler(factory)
-	return sched.Process(eval)
-}
-
-// NewSimulatorHarness is used to make a new testing harness
-func NewSimulatorHarness() *SimulatorHarness {
-	state, err := state.NewStateStore(os.Stderr)
-	if err != nil {
-		// In the unit tests logic this was 't.Fatalf'
-		panic(fmt.Sprintf("err: %v", err))
-	}
-
-	h := &SimulatorHarness{
-		State:     state,
-		nextIndex: 1,
-	}
-	return h
-}
-
 // RejectPlan is used to always reject the entire plan and force a state refresh
 type RejectPlan struct {
 	SimulatorHarness *SimulatorHarness
@@ -90,6 +35,39 @@ func (r *RejectPlan) UpdateEval(eval *structs.Evaluation) error {
 
 func (r *RejectPlan) CreateEval(*structs.Evaluation) error {
 	return nil
+}
+
+// SimulatorHarness is a lightweight testing harness for simulating
+// schedulers. It manages a state store copy and provides the planner
+// interface. It can be extended for various testing uses.
+type SimulatorHarness struct {
+	State *state.StateStore
+
+	Planner  scheduler.Planner
+	planLock sync.Mutex
+
+	Plans       []*structs.Plan
+	Evals       []*structs.Evaluation
+	CreateEvals []*structs.Evaluation
+
+	nextIndex     uint64
+	nextIndexLock sync.Mutex
+}
+
+// NewSimulatorHarness is used to make a new testing harness
+func NewSimulatorHarness() *SimulatorHarness {
+	state, err := state.NewStateStore(os.Stderr)
+	if err != nil {
+		// In the unit tests logic this was 't.Fatalf' so the appropiate
+		// behaviour outside of testing for a fatal error would be... panic.
+		panic(fmt.Sprintf("err: %v", err))
+	}
+
+	h := &SimulatorHarness{
+		State:     state,
+		nextIndex: 1,
+	}
+	return h
 }
 
 // SubmitPlan is used to handle plan submission
@@ -160,17 +138,39 @@ func (h *SimulatorHarness) CreateEval(eval *structs.Evaluation) error {
 	return nil
 }
 
+// NextIndex returns the next index
+func (h *SimulatorHarness) NextIndex() uint64 {
+	h.nextIndexLock.Lock()
+	defer h.nextIndexLock.Unlock()
+	idx := h.nextIndex
+	h.nextIndex += 1
+	return idx
+}
+
 // Snapshot is used to snapshot the current state
 func (h *SimulatorHarness) Snapshot() scheduler.State {
 	snap, _ := h.State.Snapshot()
 	return snap
 }
 
+// Scheduler is used to return a new scheduler from
+// a snapshot of current state using the harness for planning.
+func (h *SimulatorHarness) Scheduler(factory scheduler.Factory) scheduler.Scheduler {
+	logger := log.New(os.Stderr, "", log.LstdFlags)
+	return factory(logger, h.Snapshot(), h)
+}
+
+// Process is used to process an evaluation given a factory
+// function to create the scheduler
+func (h *SimulatorHarness) Process(factory scheduler.Factory, eval *structs.Evaluation) error {
+	sched := h.Scheduler(factory)
+	return sched.Process(eval)
+}
+
 func (h *SimulatorHarness) AssertEvalStatus(state string) {
 	if len(h.Evals) != 1 {
 		panic(fmt.Sprintf("bad: %#v", h.Evals))
 	}
-
 	update := h.Evals[0]
 
 	if update.Status != state {
