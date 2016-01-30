@@ -70,7 +70,7 @@ type NodeConfig struct {
 
 // Get the regular Node struct from the NodeConfig struct (intermediary for
 // HCL/JSON parsing, to avoid putting such parsing tags on the real struct).
-func ParseNode(n *NodeConfig) *structs.Node {
+func ConvertNode(n *NodeConfig) *structs.Node {
 	return &structs.Node{
 		ID:         structs.GenerateUUID(),
 		Datacenter: n.Datacenter,
@@ -138,7 +138,7 @@ func LoadNodeString(s string) (*structs.Node, error) {
 		return nil, err
 	}
 
-	return ParseNode(&result), nil
+	return ConvertNode(&result), nil
 }
 
 // LoadNodeConfigFile loads the node configuration from the given file path.
