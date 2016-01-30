@@ -16,11 +16,15 @@ type SimulatorSnapshot struct {
 	State *state.StateStore
 	// The list of Node IDs inside of the cluster at a given iteration.
 	NodeIDs []string
+	// The UNIX timestamp at the moment of processing the job. This together with the allocation
+	// time is helpful for determining the real order of job processings given that each processing
+	// is done in a separate goroutine.
+	Time int64
 }
 
 // This struct will hold the metrics of a single iteration, which will be later serialized
 // and outputted by the program.
-type NodeMetrics struct {
+type Node struct {
 	// The ID of this Node
 	ID string `json:"id"`
 	// Datacenter for this Node
@@ -29,14 +33,17 @@ type NodeMetrics struct {
 	Name string `json:"name"`
 	// Node Attributes
 	Attributes map[string]string `json:"attributes"`
-
 	// The resources that the Node has by default.
 	Resources *SimulatorResources `json:"resources"`
-	// The currently available resources in a Node (this if after substracting the
-	// resources consumed by current Allocations on the given Node).
-	Available *SimulatorResources `json:"available"`
 	// The reserved resources of the Node.
 	Reserved *SimulatorResources `json:"reserved"`
+}
+
+type NodeUsage struct {
+	// The ID of this Node
+	ID string `json:"id"`
+	// The currently available Resources for this Node.
+	Available *SimulatorResources `json:"available"`
 }
 
 // SimulatorResources is used to briefly define the resources available on a client.
@@ -49,12 +56,14 @@ type SimulatorResources struct {
 
 // A certain relevant metrics (for now) for a given Job.
 type JobMetrics struct {
-	ID          string   `json:"job_id"`
-	Datacenters []string `json:"datacenters"`
-	Region      string   `json:"region"`
-	Name        string   `json:"job_name"`
-	Type        string   `json:"job_type"`
-	TaskGroups  []string `json:"task_groups"`
+	ID             string   `json:"job_id"`
+	Datacenters    []string `json:"datacenters"`
+	Region         string   `json:"region"`
+	Name           string   `json:"job_name"`
+	Type           string   `json:"job_type"`
+	TaskGroups     []string `json:"task_groups"`
+	StartTimestamp int64    `json:"start_time_stamp"`
+	FinalTimestamp int64    `json:"final_time_stamp"`
 }
 
 // A certain relevant metrics (for now) for a given Allocation.
@@ -70,19 +79,13 @@ type AllocMetrics struct {
 
 // Get the most relevant Node information from a Node struct.
 // Relevant as in helpful for evaluating placement and bin packing.
-func ParseNodeMetrics(node *structs.Node) *NodeMetrics {
-	return &NodeMetrics{
+func parseNode(node *structs.Node) *Node {
+	return &Node{
 		ID:         node.ID,
 		Name:       node.Name,
 		Datacenter: node.Datacenter,
 		Attributes: node.Attributes,
 		Resources: &SimulatorResources{
-			CPU:      node.Resources.CPU,
-			MemoryMB: node.Resources.MemoryMB,
-			DiskMB:   node.Resources.DiskMB,
-			IOPS:     node.Resources.IOPS,
-		},
-		Available: &SimulatorResources{
 			CPU:      node.Resources.CPU,
 			MemoryMB: node.Resources.MemoryMB,
 			DiskMB:   node.Resources.DiskMB,
@@ -95,6 +98,30 @@ func ParseNodeMetrics(node *structs.Node) *NodeMetrics {
 			IOPS:     node.Reserved.IOPS,
 		},
 	}
+}
+
+func getAvailable(node *structs.Node, state *state.StateStore) *SimulatorResources {
+
+	available := &SimulatorResources{
+		CPU:      node.Resources.CPU - node.Reserved.CPU,
+		MemoryMB: node.Resources.MemoryMB - node.Reserved.MemoryMB,
+		DiskMB:   node.Resources.DiskMB - node.Reserved.DiskMB,
+		IOPS:     node.Resources.IOPS - node.Reserved.IOPS,
+	}
+
+	// Get the allocations associated with the current node
+	allocations, _ := state.AllocsByNode(node.ID)
+	for _, allocation := range allocations {
+		// And then the resources consumed by such association, to reflect them on the current
+		// node resource consumption.
+		resources := allocation.Resources
+		available.CPU = available.CPU - resources.CPU
+		available.MemoryMB = available.MemoryMB - resources.MemoryMB
+		available.DiskMB = available.DiskMB - resources.DiskMB
+		available.IOPS = available.IOPS - resources.IOPS
+	}
+
+	return available
 }
 
 // Get the most relevant Job information from a Job struct.
@@ -134,10 +161,16 @@ func ParseAllocMetrics(alloc *structs.Allocation) *AllocMetrics {
 	}
 }
 
-// The metrics of the cluster for a given iteration ~ job processing.
-type IterationMetrics struct {
+// The metrics of the cluster for a given iteration ~ Job processing.
+type JobEvaluationMetrics struct {
 	JobMetrics              *JobMetrics     `json:"evaluated_job"`
-	NodesMetrics            []*NodeMetrics  `json:"nodes_metrics"`
 	SuccessfulAllocsMetrics []*AllocMetrics `json:"successful_allocs_metrics"`
 	FailedAllocsMetrics     []*AllocMetrics `json:"failed_allocs_metrics"`
+	NodeUsageChanges        []*NodeUsage    `json:"node_usage_changes"`
+}
+
+// The output of the simulator after processing all Jobs.
+type SimulatorOutput struct {
+	Nodes          []*Node                 `json:"nodes"`
+	JobEvaluations []*JobEvaluationMetrics `json:"job_evaluations"`
 }
