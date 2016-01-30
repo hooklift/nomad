@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/nomad/command"
 	"github.com/hashicorp/nomad/jobspec"
@@ -157,9 +158,9 @@ func (c *SimulatorCommand) Run(args []string) int {
 	// metrics extraction after each job has processed.
 	snapshotChan := make(chan *SimulatorSnapshot)
 
-	go func() {
-		// For each job...
-		for _, job := range jobs {
+	// For each job...
+	for _, job := range jobs {
+		go func(job *structs.Job) {
 
 			// Upsert to the Harness Jobs parsed from configuration files.
 			noErr(h.State.UpsertJob(h.NextIndex(), job))
@@ -171,6 +172,8 @@ func (c *SimulatorCommand) Run(args []string) int {
 				TriggeredBy: structs.EvalTriggerJobRegister,
 				JobID:       job.ID,
 			}
+
+			startTimestamp := int64(time.Now().UnixNano())
 
 			// Process the evaluation, depending on the type of scheduler
 			// designated for the job. Modify this if a custom scheduler is
@@ -191,26 +194,41 @@ func (c *SimulatorCommand) Run(args []string) int {
 				Plans:   h.Plans,
 				State:   h.State,
 				NodeIDs: nodeIDs,
+				Time:    startTimestamp,
 			}
 
 			// Send the snapshot to a metrics evaluation loop so that metrics can be
 			// extracted concurrently.
 			snapshotChan <- simulatorSnapshot
-		}
-	}()
-	var iterationMetrics []*IterationMetrics
+		}(job)
+	}
+
+	var outputNodes []*Node
+	for _, nodeID := range nodeIDs {
+		node, err := h.State.NodeByID(nodeID)
+		noErr(err)
+		outputNodes = append(outputNodes, parseNode(node))
+	}
+
+	var jobEvaluations []*JobEvaluationMetrics
 
 	// This is the metrics evaluation loop.
 	for iteration := 0; iteration < len(jobs); iteration++ {
 		// Receive the simulated cluster snapshot for metrics extraction.
 		snapshot := <-snapshotChan
 
-		nodesMetrics := getMetrics(snapshot)
+		jobEvaluationMetrics := getMetrics(snapshot)
 
-		iterationMetrics = append(iterationMetrics, nodesMetrics)
+		jobEvaluations = append(jobEvaluations, jobEvaluationMetrics)
 	}
 
-	marshald, _ := json.MarshalIndent(iterationMetrics, "", "\t")
+	// Since Jobs are processed in separate goroutines, we first insert each of them
+	simulatorOutput := &SimulatorOutput{
+		Nodes:          outputNodes,
+		JobEvaluations: jobEvaluations,
+	}
+
+	marshald, _ := json.MarshalIndent(simulatorOutput, "", "\t")
 	err := ioutil.WriteFile(outFilePath, marshald, 0755)
 	noErr(err)
 
