@@ -5,14 +5,15 @@ import "github.com/hashicorp/nomad/nomad/structs"
 // Get the Metrics of cluster allocations (successful or failed) after a given iteration,
 // which is the processing of one Job. Also retrieve the current resource consumption of
 // all the Nodes present in the cluster.
-func getMetrics(simulatorSnapshot *SimulatorSnapshot) *IterationMetrics {
+func getMetrics(simulatorSnapshot *SimulatorSnapshot) *JobEvaluationMetrics {
 
 	state := simulatorSnapshot.State
 	nodeIDs := simulatorSnapshot.NodeIDs
 	eval := simulatorSnapshot.Eval
+	startTimestamp := simulatorSnapshot.Time
 
-	// A list of Node Metrics.
-	var nodesMetrics []*NodeMetrics
+	// A list of NodeUsages associated with Nodes involved in new allocations.
+	var nodeUsageChanges []*NodeUsage
 
 	// A list with the failed Allocations' Metrics.
 	var failedAllocsMetrics []*AllocMetrics
@@ -54,6 +55,10 @@ func getMetrics(simulatorSnapshot *SimulatorSnapshot) *IterationMetrics {
 	// allocate, and in the case of a multi-count TaskGroup, how many of
 	// its copies failed to allocate.
 
+	evaluatedJob, err := state.JobByID(eval.JobID)
+	noErr(err)
+	jobMetrics := ParseJobMetrics(evaluatedJob)
+
 	for _, plan := range simulatorSnapshot.Plans {
 		// Look for the Plan with associated with the current Eval (which was
 		// created after processing the Job during the simulator iteration).
@@ -61,10 +66,26 @@ func getMetrics(simulatorSnapshot *SimulatorSnapshot) *IterationMetrics {
 			continue
 		}
 
+		maxAllocTime := int64(-1)
+
 		for _, allocsByNode := range plan.NodeAllocation {
 			for _, alloc := range allocsByNode {
-				successfulAllocsMetrics = append(successfulAllocsMetrics, ParseAllocMetrics(alloc))
+				parsedAlloc := ParseAllocMetrics(alloc)
+				successfulAllocsMetrics = append(successfulAllocsMetrics, parsedAlloc)
+				// The final timestamp for the Job will be the biggest AllocationTimestamp of any of its
+				// allocations. If there's not a single successful Allocation, then the -1 value will be
+				// preserved and the Job will be considered failed.
+				if maxAllocTime < parsedAlloc.AllocationTime {
+					maxAllocTime = parsedAlloc.AllocationTime
+				}
 			}
+		}
+
+		jobMetrics.StartTimestamp = startTimestamp
+		if maxAllocTime != -1 {
+			jobMetrics.FinalTimestamp = startTimestamp + maxAllocTime
+		} else {
+			jobMetrics.FinalTimestamp = -1
 		}
 
 		// Iterate over the failed Allocations in the Plan associated with the Job
@@ -123,32 +144,25 @@ func getMetrics(simulatorSnapshot *SimulatorSnapshot) *IterationMetrics {
 		}
 	}
 
-	for _, nodeID := range nodeIDs {
-		// Get the node by its ID
-		node, _ := state.NodeByID(nodeID)
-		// Set the metrics struct with the base resources of the node. These resources do not
-		// reflect the resources consumed by the current allocations.
-		nodeMetrics := ParseNodeMetrics(node)
-
-		// Get the allocations associated with the current node
-		allocations, _ := state.AllocsByNode(nodeID)
-		for _, allocation := range allocations {
-			// And then the resources consumed by such association, to reflect them on the current
-			// node resource consumption.
-			resources := allocation.Resources
-			nodeMetrics.Available.CPU = nodeMetrics.Available.CPU - resources.CPU
-			nodeMetrics.Available.MemoryMB = nodeMetrics.Available.MemoryMB - resources.MemoryMB
-			nodeMetrics.Available.DiskMB = nodeMetrics.Available.DiskMB - resources.DiskMB
-			nodeMetrics.Available.IOPS = nodeMetrics.Available.IOPS - resources.IOPS
-		}
-		nodesMetrics = append(nodesMetrics, nodeMetrics)
+	changedNodes := make(map[string]bool)
+	for _, alloc := range successfulAllocsMetrics {
+		// Store the unique Node IDs associated with successful Allocations after the current Job Evaluation.
+		changedNodes[alloc.NodeID] = true
 	}
 
-	evaluatedJob, err := state.JobByID(eval.JobID)
-	noErr(err)
-	return &IterationMetrics{
-		JobMetrics:              ParseJobMetrics(evaluatedJob),
-		NodesMetrics:            nodesMetrics,
+	for nodeID := range changedNodes {
+		node, _ := state.NodeByID(nodeID)
+		available := getAvailable(node, state)
+		nodeUsage := &NodeUsage{
+			ID:        node.ID,
+			Available: available,
+		}
+		nodeUsageChanges = append(nodeUsageChanges, nodeUsage)
+	}
+
+	return &JobEvaluationMetrics{
+		JobMetrics:              jobMetrics,
+		NodeUsageChanges:        nodeUsageChanges,
 		FailedAllocsMetrics:     failedAllocsMetrics,
 		SuccessfulAllocsMetrics: successfulAllocsMetrics,
 	}
