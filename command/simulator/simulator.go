@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/nomad/command"
@@ -158,6 +159,8 @@ func (c *SimulatorCommand) Run(args []string) int {
 	// metrics extraction after each job has processed.
 	snapshotChan := make(chan *SimulatorSnapshot)
 
+	mutex := &sync.Mutex{}
+
 	// For each job...
 	for _, job := range jobs {
 		go func(job *structs.Job) {
@@ -175,6 +178,7 @@ func (c *SimulatorCommand) Run(args []string) int {
 
 			startTimestamp := int64(time.Now().UnixNano())
 
+			mutex.Lock()
 			// Process the evaluation, depending on the type of scheduler
 			// designated for the job. Modify this if a custom scheduler is
 			// to be used.
@@ -186,6 +190,7 @@ func (c *SimulatorCommand) Run(args []string) int {
 			case structs.JobTypeService:
 				noErr(h.Process(scheduler.NewServiceScheduler, eval))
 			}
+			mutex.Unlock()
 
 			// A snapshot of the simulator after each Job has been processed contains the
 			// ID to its Nodes, the plans, and the internal state.
