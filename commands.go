@@ -128,8 +128,31 @@ func Commands(metaPtr *command.Meta) map[string]cli.CommandFactory {
 			}, nil
 		},
 
-		"simulator": func() (cli.Command, error) {
-			return &simulator.SimulatorCommand{
+		"sim": func() (cli.Command, error) {
+			return &simulator.SimCommand{
+				Meta: meta,
+			}, nil
+		},
+
+		"sim-run-job": func() (cli.Command, error) {
+			return &simulator.SimRunJobCommand{
+				Meta: meta,
+			}, nil
+		},
+		"sim-stop-job": func() (cli.Command, error) {
+			return &simulator.SimStopJobCommand{
+				Meta: meta,
+			}, nil
+		},
+
+		"sim-add-node": func() (cli.Command, error) {
+			return &simulator.SimAddNodeCommand{
+				Meta: meta,
+			}, nil
+		},
+
+		"sim-quit-node": func() (cli.Command, error) {
+			return &simulator.SimQuitNodeCommand{
 				Meta: meta,
 			}, nil
 		},
