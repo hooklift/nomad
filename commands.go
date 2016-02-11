@@ -134,29 +134,6 @@ func Commands(metaPtr *command.Meta) map[string]cli.CommandFactory {
 			}, nil
 		},
 
-		"sim-run-job": func() (cli.Command, error) {
-			return &simulator.SimRunJobCommand{
-				Meta: meta,
-			}, nil
-		},
-		"sim-stop-job": func() (cli.Command, error) {
-			return &simulator.SimStopJobCommand{
-				Meta: meta,
-			}, nil
-		},
-
-		"sim-add-node": func() (cli.Command, error) {
-			return &simulator.SimAddNodeCommand{
-				Meta: meta,
-			}, nil
-		},
-
-		"sim-quit-node": func() (cli.Command, error) {
-			return &simulator.SimQuitNodeCommand{
-				Meta: meta,
-			}, nil
-		},
-
 		"spawn-daemon": func() (cli.Command, error) {
 			return &command.SpawnDaemonCommand{
 				Meta: meta,
