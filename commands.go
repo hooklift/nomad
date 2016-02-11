@@ -128,7 +128,7 @@ func Commands(metaPtr *command.Meta) map[string]cli.CommandFactory {
 			}, nil
 		},
 
-		"sim": func() (cli.Command, error) {
+		"simulator": func() (cli.Command, error) {
 			return &simulator.SimCommand{
 				Meta: meta,
 			}, nil
