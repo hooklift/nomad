@@ -5,6 +5,7 @@ import (
 
 	"github.com/hashicorp/nomad/command"
 	"github.com/hashicorp/nomad/command/agent"
+	"github.com/hashicorp/nomad/command/simulator"
 	"github.com/mitchellh/cli"
 )
 
