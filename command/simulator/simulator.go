@@ -25,12 +25,12 @@ type SimCommand struct {
 
 func (c *SimCommand) Help() string {
 	helpText := `
-Usage: nomad simulator -nodeList <path> -jobList <path> -outFile <path>
+Usage: nomad simulator -nodeList <path> -jobList <path> [-outFile <path>]
   -nodeList <path>
     A path to a file containing a list of node specification file paths, one per line.
   -jobList <path>
     A path to a file containing a list of job specification file paths, one per line.
-  -outFile <path>
+  [-outFile <path>]
     A path where the output JSON file will be created into. If not specified, default
     filename is simulator_output.json, at the location where binary was run.
     Example:
@@ -118,11 +118,11 @@ func (c *SimCommand) Run(args []string) int {
 		jobs = append(jobs, current)
 	}
 
-	// Create a new SimulatorHarness, in the same fashion that the Harness is
+	// Create a new SimHarness, in the same fashion that the Harness is
 	// used for Unit Testing, since that is some sort of a simulation for
 	// specific features, in our case, scheduling and placement simulation,
 	// but with user inputted configurations instead of mocked values.
-	h := NewSimulatorHarness()
+	h := NewSimHarness()
 	// Initialize the mutex. This will lock Job scheduling operations.
 	// Without this, and while using the harness logic, a problem arises in
 	// which two Jobs are being concurrently allocated and they result in a
@@ -144,30 +144,23 @@ func (c *SimCommand) Run(args []string) int {
 	// ...
 	// This is a channel where a snapshot of the simulator will be sent for
 	// metrics extraction after each job has processed.
-	snapshotChan := make(chan *SimulatorSnapshot)
+	snapshotChan := make(chan *SimSnapshot)
 
 	// For each job...
 	for _, job := range jobs {
 		// Run a separate goroutine...
 		go func(job *structs.Job) {
-
 			// Here's where starts what counts as 'processing' a Job, which comprises
 			// adding it to the State, and then scheduling it. Start counting time from
-			// this point in time, until it is done scheduling.
+			// this point in time, until it is done scheduling. The 'finishing' time is
+			// the start time + the time it takes to the last Allocation to take place
+			// (each Allocation has a time, so add whichever is the longest time).
 			startTimestamp := int64(time.Now().UnixNano())
 
 			// Upsert into the Harness Jobs parsed from configuration files.
 			noErr(h.State.UpsertJob(h.NextIndex(), job))
 
 			// Create mock Evaluations to register the Jobs.
-			// The usual rules apply for allocation:
-			// Jobs must belong to same region of nodes, otherwise won't allocate.
-			// Jobs must have a datacenter related to the one in the nodes, otherwise won't allocate.
-			// Jobs' task drivers must be related to the ones in nodes, otherwise won't allocate.
-			// ...
-			// For specifically evaluating the bin packing, its better if all jobs and nodes belong
-			// to a single datacenter, in the same region, with the same task drivers, so all nodes
-			// are eligible for scheduling, and the bin packing can be seen more evidently.
 			eval := &structs.Evaluation{
 				ID:          structs.GenerateUUID(),
 				Priority:    job.Priority,
@@ -180,6 +173,15 @@ func (c *SimCommand) Run(args []string) int {
 			// which two Jobs are being concurrently allocated and they result in a
 			// situation of resource over-consumption for a given Node.
 			mutex.Lock()
+
+			// The usual rules apply for allocation:
+			// Jobs must belong to same region of nodes, otherwise won't allocate.
+			// Jobs must have a datacenter related to the one in the nodes, otherwise won't allocate.
+			// Jobs' task drivers must be related to the ones in nodes, otherwise won't allocate.
+			// ...
+			// For specifically evaluating the bin packing, its better if all jobs and nodes belong
+			// to a single datacenter, in the same region, with the same task drivers, so all nodes
+			// are eligible for scheduling, and the bin packing can be seen more evidently.
 
 			// Process the evaluation, depending on the type of scheduler
 			// designated for the job. Modify this if a custom scheduler is
@@ -198,7 +200,7 @@ func (c *SimCommand) Run(args []string) int {
 
 			// A snapshot of the simulator after each Job has been processed contains the
 			// ID to its Nodes, the plans, and the internal state.
-			simulatorSnapshot := &SimulatorSnapshot{
+			simSnapshot := &SimSnapshot{
 				Eval:    eval,
 				Plans:   h.Plans,
 				State:   h.State,
@@ -208,11 +210,11 @@ func (c *SimCommand) Run(args []string) int {
 
 			// Send the snapshot to a metrics evaluation loop so that metrics can be
 			// extracted concurrently.
-			snapshotChan <- simulatorSnapshot
+			snapshotChan <- simSnapshot
 		}(job)
 	}
 
-	var outputNodes []*Node
+	var outputNodes []*SimNode
 	for _, nodeID := range nodeIDs {
 		node, err := h.State.NodeByID(nodeID)
 		noErr(err)
@@ -231,12 +233,12 @@ func (c *SimCommand) Run(args []string) int {
 	}
 
 	// Structure to serialize the final simulator output.
-	simulatorOutput := &SimulatorOutput{
+	simOutput := &SimOutput{
 		Nodes:          outputNodes,
 		JobEvaluations: jobEvaluations,
 	}
 
-	marshald, _ := json.MarshalIndent(simulatorOutput, "", "\t")
+	marshald, _ := json.MarshalIndent(simOutput, "", "\t")
 	err := ioutil.WriteFile(outFile, marshald, 0755)
 	noErr(err)
 	return 0
