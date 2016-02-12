@@ -15,18 +15,18 @@ import (
 // All these functions and types are from the scheduler package, but are not accesible outside of
 // testing since they are in the test files. The 'Harness' and related functions allow to test
 // the scheduler by simulating certain conditions under mocked clients/jobs/etc. We want to simulate
-// the scheduling process, but using our own inputted clients and jobs instead of mocked values.
+// the scheduling process, but using our own inputted Nodes and Jobs instead of mocked values.
 //
 
 // RejectPlan is used to always reject the entire plan and force a state refresh
 type RejectPlan struct {
-	SimulatorHarness *SimulatorHarness
+	SimHarness *SimHarness
 }
 
 func (r *RejectPlan) SubmitPlan(*structs.Plan) (*structs.PlanResult, scheduler.State, error) {
 	result := new(structs.PlanResult)
-	result.RefreshIndex = r.SimulatorHarness.NextIndex()
-	return result, r.SimulatorHarness.State, nil
+	result.RefreshIndex = r.SimHarness.NextIndex()
+	return result, r.SimHarness.State, nil
 }
 
 func (r *RejectPlan) UpdateEval(eval *structs.Evaluation) error {
@@ -37,10 +37,11 @@ func (r *RejectPlan) CreateEval(*structs.Evaluation) error {
 	return nil
 }
 
-// SimulatorHarness is a lightweight testing harness for simulating
+// SimHarness is a lightweight testing harness for simulating
 // schedulers. It manages a state store copy and provides the planner
-// interface. It can be extended for various testing uses.
-type SimulatorHarness struct {
+// interface. It can be extended for various testing uses, in our case,
+// for simulation.
+type SimHarness struct {
 	State *state.StateStore
 
 	Planner  scheduler.Planner
@@ -54,8 +55,8 @@ type SimulatorHarness struct {
 	nextIndexLock sync.Mutex
 }
 
-// NewSimulatorHarness is used to make a new testing harness
-func NewSimulatorHarness() *SimulatorHarness {
+// NewSimHarness is used to make a new simulator harness
+func NewSimHarness() *SimHarness {
 	state, err := state.NewStateStore(os.Stderr)
 	if err != nil {
 		// In the unit tests logic this was 't.Fatalf' so the appropiate
@@ -63,7 +64,7 @@ func NewSimulatorHarness() *SimulatorHarness {
 		panic(fmt.Sprintf("err: %v", err))
 	}
 
-	h := &SimulatorHarness{
+	h := &SimHarness{
 		State:     state,
 		nextIndex: 1,
 	}
@@ -71,7 +72,7 @@ func NewSimulatorHarness() *SimulatorHarness {
 }
 
 // SubmitPlan is used to handle plan submission
-func (h *SimulatorHarness) SubmitPlan(plan *structs.Plan) (*structs.PlanResult, scheduler.State, error) {
+func (h *SimHarness) SubmitPlan(plan *structs.Plan) (*structs.PlanResult, scheduler.State, error) {
 	// Ensure sequential plan application
 	h.planLock.Lock()
 	defer h.planLock.Unlock()
@@ -108,7 +109,7 @@ func (h *SimulatorHarness) SubmitPlan(plan *structs.Plan) (*structs.PlanResult, 
 	return result, nil, err
 }
 
-func (h *SimulatorHarness) UpdateEval(eval *structs.Evaluation) error {
+func (h *SimHarness) UpdateEval(eval *structs.Evaluation) error {
 	// Ensure sequential plan application
 	h.planLock.Lock()
 	defer h.planLock.Unlock()
@@ -123,7 +124,7 @@ func (h *SimulatorHarness) UpdateEval(eval *structs.Evaluation) error {
 	return nil
 }
 
-func (h *SimulatorHarness) CreateEval(eval *structs.Evaluation) error {
+func (h *SimHarness) CreateEval(eval *structs.Evaluation) error {
 	// Ensure sequential plan application
 	h.planLock.Lock()
 	defer h.planLock.Unlock()
@@ -139,7 +140,7 @@ func (h *SimulatorHarness) CreateEval(eval *structs.Evaluation) error {
 }
 
 // NextIndex returns the next index
-func (h *SimulatorHarness) NextIndex() uint64 {
+func (h *SimHarness) NextIndex() uint64 {
 	h.nextIndexLock.Lock()
 	defer h.nextIndexLock.Unlock()
 	idx := h.nextIndex
@@ -148,26 +149,26 @@ func (h *SimulatorHarness) NextIndex() uint64 {
 }
 
 // Snapshot is used to snapshot the current state
-func (h *SimulatorHarness) Snapshot() scheduler.State {
+func (h *SimHarness) Snapshot() scheduler.State {
 	snap, _ := h.State.Snapshot()
 	return snap
 }
 
 // Scheduler is used to return a new scheduler from
 // a snapshot of current state using the harness for planning.
-func (h *SimulatorHarness) Scheduler(factory scheduler.Factory) scheduler.Scheduler {
+func (h *SimHarness) Scheduler(factory scheduler.Factory) scheduler.Scheduler {
 	logger := log.New(os.Stderr, "", log.LstdFlags)
 	return factory(logger, h.Snapshot(), h)
 }
 
 // Process is used to process an evaluation given a factory
 // function to create the scheduler
-func (h *SimulatorHarness) Process(factory scheduler.Factory, eval *structs.Evaluation) error {
+func (h *SimHarness) Process(factory scheduler.Factory, eval *structs.Evaluation) error {
 	sched := h.Scheduler(factory)
 	return sched.Process(eval)
 }
 
-func (h *SimulatorHarness) AssertEvalStatus(state string) {
+func (h *SimHarness) AssertEvalStatus(state string) {
 	if len(h.Evals) != 1 {
 		panic(fmt.Sprintf("bad: %#v", h.Evals))
 	}
