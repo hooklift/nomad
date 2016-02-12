@@ -34,13 +34,13 @@ type NodeConfig struct {
 
 	// Resources is the available resources on the client.
 	// For example "cpu=2700" "memory=8192"
-	Resources *SimulatorResources `hcl:"resources" json:"resources"`
+	Resources *SimResources `hcl:"resources" json:"resources"`
 
 	// Reserved is the set of Resources that are reserved, and should be
 	// subtracted from the total Resources for the purposes of scheduling.
 	// This may be provide certain high-watermark tolerances or because
 	// of external schedulers consuming resources.
-	Reserved *SimulatorResources `hcl:"reserved" json:"reserved"`
+	Reserved *SimResources `hcl:"reserved" json:"reserved"`
 
 	// Links are used to 'link' this client to external systems.
 	// For example "consul=foo.dc1" "aws=i-83212" "ami=ami-123"
