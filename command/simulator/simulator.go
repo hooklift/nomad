@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -61,7 +62,7 @@ func (c *SimCommand) Run(args []string) int {
 
 	flags.StringVar(&nodeListPath, "nodeList", "", "nodeList")
 	flags.StringVar(&jobListPath, "jobList", "", "jobList")
-	flags.StringVar(&outFile, "outfile", "", "outfile")
+	flags.StringVar(&outFile, "outFile", "", "outfile")
 
 	if err := flags.Parse(args); err != nil {
 		return 1
@@ -238,10 +239,24 @@ func (c *SimCommand) Run(args []string) int {
 		JobEvaluations: jobEvaluations,
 	}
 
+	sort.Sort(ByFinalTimestamp(jobEvaluations))
+
 	marshald, _ := json.MarshalIndent(simOutput, "", "\t")
 	err := ioutil.WriteFile(outFile, marshald, 0755)
 	noErr(err)
 	return 0
+}
+
+type ByFinalTimestamp []*JobEvaluationMetrics
+
+func (je ByFinalTimestamp) Len() int {
+	return len(je)
+}
+func (je ByFinalTimestamp) Swap(i, j int) {
+	je[i], je[j] = je[j], je[i]
+}
+func (je ByFinalTimestamp) Less(i, j int) bool {
+	return je[i].JobMetrics.FinalTimestamp < je[j].JobMetrics.FinalTimestamp
 }
 
 // readPaths reads a whole file containing paths to files as lines into memory
