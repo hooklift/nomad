@@ -15,31 +15,17 @@ import (
 // All these functions and types are from the scheduler package, but are not accesible outside of
 // testing since they are in the test files. The 'Harness' and related functions allow to test
 // the scheduler by simulating certain conditions under mocked clients/jobs/etc. We want to simulate
-<<<<<<< HEAD
 // the scheduling process, but using our own inputted Nodes and Jobs instead of mocked values.
-=======
-// the scheduling process, but using our own inputted clients and jobs instead of mocked values.
->>>>>>> 5e319bea32309224bbab9d71628ce06f20e09707
-//
 
 // RejectPlan is used to always reject the entire plan and force a state refresh
 type RejectPlan struct {
-<<<<<<< HEAD
 	SimHarness *SimHarness
-=======
-	SimulatorHarness *SimulatorHarness
->>>>>>> 5e319bea32309224bbab9d71628ce06f20e09707
 }
 
 func (r *RejectPlan) SubmitPlan(*structs.Plan) (*structs.PlanResult, scheduler.State, error) {
 	result := new(structs.PlanResult)
-<<<<<<< HEAD
 	result.RefreshIndex = r.SimHarness.NextIndex()
 	return result, r.SimHarness.State, nil
-=======
-	result.RefreshIndex = r.SimulatorHarness.NextIndex()
-	return result, r.SimulatorHarness.State, nil
->>>>>>> 5e319bea32309224bbab9d71628ce06f20e09707
 }
 
 func (r *RejectPlan) UpdateEval(eval *structs.Evaluation) error {
@@ -50,18 +36,11 @@ func (r *RejectPlan) CreateEval(*structs.Evaluation) error {
 	return nil
 }
 
-<<<<<<< HEAD
 // SimHarness is a lightweight testing harness for simulating
 // schedulers. It manages a state store copy and provides the planner
 // interface. It can be extended for various testing uses, in our case,
 // for simulation.
 type SimHarness struct {
-=======
-// SimulatorHarness is a lightweight testing harness for simulating
-// schedulers. It manages a state store copy and provides the planner
-// interface. It can be extended for various testing uses.
-type SimulatorHarness struct {
->>>>>>> 5e319bea32309224bbab9d71628ce06f20e09707
 	State *state.StateStore
 
 	Planner  scheduler.Planner
@@ -75,13 +54,8 @@ type SimulatorHarness struct {
 	nextIndexLock sync.Mutex
 }
 
-<<<<<<< HEAD
 // NewSimHarness is used to make a new simulator harness
 func NewSimHarness() *SimHarness {
-=======
-// NewSimulatorHarness is used to make a new testing harness
-func NewSimulatorHarness() *SimulatorHarness {
->>>>>>> 5e319bea32309224bbab9d71628ce06f20e09707
 	state, err := state.NewStateStore(os.Stderr)
 	if err != nil {
 		// In the unit tests logic this was 't.Fatalf' so the appropiate
@@ -89,11 +63,7 @@ func NewSimulatorHarness() *SimulatorHarness {
 		panic(fmt.Sprintf("err: %v", err))
 	}
 
-<<<<<<< HEAD
 	h := &SimHarness{
-=======
-	h := &SimulatorHarness{
->>>>>>> 5e319bea32309224bbab9d71628ce06f20e09707
 		State:     state,
 		nextIndex: 1,
 	}
@@ -101,11 +71,7 @@ func NewSimulatorHarness() *SimulatorHarness {
 }
 
 // SubmitPlan is used to handle plan submission
-<<<<<<< HEAD
 func (h *SimHarness) SubmitPlan(plan *structs.Plan) (*structs.PlanResult, scheduler.State, error) {
-=======
-func (h *SimulatorHarness) SubmitPlan(plan *structs.Plan) (*structs.PlanResult, scheduler.State, error) {
->>>>>>> 5e319bea32309224bbab9d71628ce06f20e09707
 	// Ensure sequential plan application
 	h.planLock.Lock()
 	defer h.planLock.Unlock()
@@ -142,11 +108,7 @@ func (h *SimulatorHarness) SubmitPlan(plan *structs.Plan) (*structs.PlanResult, 
 	return result, nil, err
 }
 
-<<<<<<< HEAD
 func (h *SimHarness) UpdateEval(eval *structs.Evaluation) error {
-=======
-func (h *SimulatorHarness) UpdateEval(eval *structs.Evaluation) error {
->>>>>>> 5e319bea32309224bbab9d71628ce06f20e09707
 	// Ensure sequential plan application
 	h.planLock.Lock()
 	defer h.planLock.Unlock()
@@ -161,11 +123,7 @@ func (h *SimulatorHarness) UpdateEval(eval *structs.Evaluation) error {
 	return nil
 }
 
-<<<<<<< HEAD
 func (h *SimHarness) CreateEval(eval *structs.Evaluation) error {
-=======
-func (h *SimulatorHarness) CreateEval(eval *structs.Evaluation) error {
->>>>>>> 5e319bea32309224bbab9d71628ce06f20e09707
 	// Ensure sequential plan application
 	h.planLock.Lock()
 	defer h.planLock.Unlock()
@@ -181,11 +139,7 @@ func (h *SimulatorHarness) CreateEval(eval *structs.Evaluation) error {
 }
 
 // NextIndex returns the next index
-<<<<<<< HEAD
 func (h *SimHarness) NextIndex() uint64 {
-=======
-func (h *SimulatorHarness) NextIndex() uint64 {
->>>>>>> 5e319bea32309224bbab9d71628ce06f20e09707
 	h.nextIndexLock.Lock()
 	defer h.nextIndexLock.Unlock()
 	idx := h.nextIndex
@@ -194,42 +148,26 @@ func (h *SimulatorHarness) NextIndex() uint64 {
 }
 
 // Snapshot is used to snapshot the current state
-<<<<<<< HEAD
 func (h *SimHarness) Snapshot() scheduler.State {
-=======
-func (h *SimulatorHarness) Snapshot() scheduler.State {
->>>>>>> 5e319bea32309224bbab9d71628ce06f20e09707
 	snap, _ := h.State.Snapshot()
 	return snap
 }
 
 // Scheduler is used to return a new scheduler from
 // a snapshot of current state using the harness for planning.
-<<<<<<< HEAD
 func (h *SimHarness) Scheduler(factory scheduler.Factory) scheduler.Scheduler {
-=======
-func (h *SimulatorHarness) Scheduler(factory scheduler.Factory) scheduler.Scheduler {
->>>>>>> 5e319bea32309224bbab9d71628ce06f20e09707
 	logger := log.New(os.Stderr, "", log.LstdFlags)
 	return factory(logger, h.Snapshot(), h)
 }
 
 // Process is used to process an evaluation given a factory
 // function to create the scheduler
-<<<<<<< HEAD
 func (h *SimHarness) Process(factory scheduler.Factory, eval *structs.Evaluation) error {
-=======
-func (h *SimulatorHarness) Process(factory scheduler.Factory, eval *structs.Evaluation) error {
->>>>>>> 5e319bea32309224bbab9d71628ce06f20e09707
 	sched := h.Scheduler(factory)
 	return sched.Process(eval)
 }
 
-<<<<<<< HEAD
 func (h *SimHarness) AssertEvalStatus(state string) {
-=======
-func (h *SimulatorHarness) AssertEvalStatus(state string) {
->>>>>>> 5e319bea32309224bbab9d71628ce06f20e09707
 	if len(h.Evals) != 1 {
 		panic(fmt.Sprintf("bad: %#v", h.Evals))
 	}
