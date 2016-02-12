@@ -5,15 +5,15 @@ import "github.com/hashicorp/nomad/nomad/structs"
 // Get the Metrics of cluster allocations (successful or failed) after a given iteration,
 // which is the processing of one Job. Also retrieve the current resource consumption of
 // all the Nodes present in the cluster.
-func getMetrics(simulatorSnapshot *SimulatorSnapshot) *JobEvaluationMetrics {
+func getMetrics(simSnapshot *SimSnapshot) *JobEvaluationMetrics {
 
-	state := simulatorSnapshot.State
-	nodeIDs := simulatorSnapshot.NodeIDs
-	eval := simulatorSnapshot.Eval
-	startTimestamp := simulatorSnapshot.Time
+	state := simSnapshot.State
+	nodeIDs := simSnapshot.NodeIDs
+	eval := simSnapshot.Eval
+	startTimestamp := simSnapshot.Time
 
-	// A list of NodeUsages associated with Nodes involved in new allocations.
-	var nodeUsageChanges []*NodeUsage
+	// A list of NodeUsageChange associated with Nodes involved in new Allocations.
+	var nodeUsageChanges []*NodeUsageChange
 
 	// A list with the failed Allocations' Metrics.
 	var failedAllocsMetrics []*AllocMetrics
@@ -21,11 +21,11 @@ func getMetrics(simulatorSnapshot *SimulatorSnapshot) *JobEvaluationMetrics {
 	// A list with the successful Allocations' Metrics.
 	var successfulAllocsMetrics []*AllocMetrics
 
-	// TODO: try to resume theses following long comments a bit.
+	// TODO: try to reduce these following long comments a bit.
 	// ...
 	// We first need to get all the failed Allocations to report all of them.
 	// This is not as simple as just going through the FailedAllocs list in
-	// the current Plan.
+	// the current Plan. This is because...
 	// ...
 	// Allocations are mappings between a TaskGroup in a Job, and a Node.
 	// If there is a failed Allocation, it means that not all Tasks in a
@@ -34,8 +34,8 @@ func getMetrics(simulatorSnapshot *SimulatorSnapshot) *JobEvaluationMetrics {
 	// ...
 	// A Job can have multiple TaskGroups, but simultaneuously each TaskGroup
 	// can have a 'count' value, meaning that such TaskGroup will be attempted
-	// to be duplicated that much times. Also, TaskGroups are allocated in a
-	// random fashion (not the order given in the Job specification).
+	// to be placed that much times. Also, TaskGroups are allocated in a random
+	// fashion (not the order given in the Job specification).
 	// ...
 	// A 'count' of 5 in a TaskGroup means such TaskGroup will be attempted
 	// to be allocated 5 separate times, but not necessarily on the same Node,
@@ -59,13 +59,14 @@ func getMetrics(simulatorSnapshot *SimulatorSnapshot) *JobEvaluationMetrics {
 	noErr(err)
 	jobMetrics := ParseJobMetrics(evaluatedJob)
 
-	for _, plan := range simulatorSnapshot.Plans {
+	for _, plan := range simSnapshot.Plans {
 		// Look for the Plan with associated with the current Eval (which was
 		// created after processing the Job during the simulator iteration).
 		if plan.EvalID != eval.ID {
 			continue
 		}
 
+		// Lets look for the highest Allocation time amongst the Job Allocations.
 		maxAllocTime := int64(-1)
 
 		for _, allocsByNode := range plan.NodeAllocation {
@@ -81,6 +82,11 @@ func getMetrics(simulatorSnapshot *SimulatorSnapshot) *JobEvaluationMetrics {
 			}
 		}
 
+		// The Job starting time is whenever it was started to be processed in a goroutine
+		// (added to the State, eval created, scheduling processed). And the Job final time
+		// is the time it took to the longest Allocation to place. If no Allocation placed,
+		// the finishing time will be -1. All these times are in nanoseconds, since Allocation
+		// timestamps are in UNIX nanoseconds.
 		jobMetrics.StartTimestamp = startTimestamp
 		if maxAllocTime != -1 {
 			jobMetrics.FinalTimestamp = startTimestamp + maxAllocTime
@@ -88,11 +94,15 @@ func getMetrics(simulatorSnapshot *SimulatorSnapshot) *JobEvaluationMetrics {
 			jobMetrics.FinalTimestamp = -1
 		}
 
+		// Now, to determine the real amount of failing Allocations, lets calculate for a
+		// given TaskGroup how many Allocations should've been done, and how many were
+		// placed, so the difference is the amount of failing Allocations.
+
 		// Iterate over the failed Allocations in the Plan associated with the Job
 		// that was processed during a simulator iteration.
 		for _, failedAlloc := range plan.FailedAllocs {
-			// The only thing the failed Allocation contains about its TaskGroup
-			// is the Name.
+			// The only thing the failed Allocation contains about its associated
+			// TaskGroup is the Name.
 			failedTaskGroupName := failedAlloc.TaskGroup
 
 			// The Job to which the failed TaskGroup belongs to.
@@ -107,7 +117,7 @@ func getMetrics(simulatorSnapshot *SimulatorSnapshot) *JobEvaluationMetrics {
 				if taskGroup.Name == failedTaskGroupName {
 					totalCount := taskGroup.Count
 					// For System Scheduling, the total count of instances of a TaskGroup
-					// is multiplied by the total amount of Nodes.
+					// that should have placed is multiplied by the total amount of Nodes.
 					if job.Type == structs.JobTypeSystem {
 						totalCount *= len(nodeIDs)
 					}
@@ -146,18 +156,27 @@ func getMetrics(simulatorSnapshot *SimulatorSnapshot) *JobEvaluationMetrics {
 
 	changedNodes := make(map[string]bool)
 	for _, alloc := range successfulAllocsMetrics {
-		// Store the unique Node IDs associated with successful Allocations after the current Job Evaluation.
+		// Store uniquely the Node IDs associated with successful Allocations
+		// after the current Job scheduling has been done.
 		changedNodes[alloc.NodeID] = true
 	}
 
 	for nodeID := range changedNodes {
-		node, _ := state.NodeByID(nodeID)
+		// Now, for those Nodes affected during this iteration, calculate their
+		// currently available resources. We first find out which were the Nodes
+		// affected during this iteration to avoid doing this calculation for all
+		// the Nodes in the simulater cluster, which could be expensive.
+		node, err := state.NodeByID(nodeID)
+		noErr(err)
+		// Get the resources currently available to this Node.
 		available := getAvailable(node, state)
-		nodeUsage := &NodeUsage{
+		nodeUsageChange := &NodeUsageChange{
 			ID:        node.ID,
 			Available: available,
 		}
-		nodeUsageChanges = append(nodeUsageChanges, nodeUsage)
+		// This list will only contain updates to the resource usage of Nodes
+		// affected by placements during this iteration.
+		nodeUsageChanges = append(nodeUsageChanges, nodeUsageChange)
 	}
 
 	return &JobEvaluationMetrics{
