@@ -10,10 +10,9 @@ func getMetrics(simSnapshot *SimSnapshot) *JobEvaluationMetrics {
 	state := simSnapshot.State
 	nodeIDs := simSnapshot.NodeIDs
 	eval := simSnapshot.Eval
-	startTimestamp := simSnapshot.Time
 
-	// A list of NodeUsageChange associated with Nodes involved in new Allocations.
-	var nodeUsageChanges []*NodeUsageChange
+	// A list of ChangedNodes associated with Nodes involved in new Allocations.
+	var changedNodes []*ChangedNode
 
 	// A list with the failed Allocations' Metrics.
 	var failedAllocsMetrics []*AllocMetrics
@@ -35,7 +34,10 @@ func getMetrics(simSnapshot *SimSnapshot) *JobEvaluationMetrics {
 	// A Job can have multiple TaskGroups, but simultaneuously each TaskGroup
 	// can have a 'count' value, meaning that such TaskGroup will be attempted
 	// to be placed that much times. Also, TaskGroups are allocated in a random
-	// fashion (not the order given in the Job specification).
+	// fashion (not the order given in the Job specification). Also even if the
+	// 'count' value is singular, if the Job has type 'system', then it will be
+	// attempted to be allocated in all Nodes, and some of those attempts may
+	// fail, but only one will be reported.
 	// ...
 	// A 'count' of 5 in a TaskGroup means such TaskGroup will be attempted
 	// to be allocated 5 separate times, but not necessarily on the same Node,
@@ -57,7 +59,11 @@ func getMetrics(simSnapshot *SimSnapshot) *JobEvaluationMetrics {
 
 	evaluatedJob, err := state.JobByID(eval.JobID)
 	noErr(err)
-	jobMetrics := ParseJobMetrics(evaluatedJob)
+	jobMetrics := ParseEvaluatedJob(evaluatedJob)
+
+	jobMetrics.SubmitTimeStamp = simSnapshot.SubmitTimeStamp
+	jobMetrics.StartTimeStamp = simSnapshot.StartTimeStamp
+	jobMetrics.FinalTimeStamp = simSnapshot.FinalTimeStamp
 
 	for _, plan := range simSnapshot.Plans {
 		// Look for the Plan with associated with the current Eval (which was
@@ -66,32 +72,12 @@ func getMetrics(simSnapshot *SimSnapshot) *JobEvaluationMetrics {
 			continue
 		}
 
-		// Lets look for the highest Allocation time amongst the Job Allocations.
-		maxAllocTime := int64(-1)
-
+		// First, store the parsed successful allocations.
 		for _, allocsByNode := range plan.NodeAllocation {
 			for _, alloc := range allocsByNode {
 				parsedAlloc := ParseAllocMetrics(alloc)
 				successfulAllocsMetrics = append(successfulAllocsMetrics, parsedAlloc)
-				// The final timestamp for the Job will be the biggest AllocationTimestamp of any of its
-				// allocations. If there's not a single successful Allocation, then the -1 value will be
-				// preserved and the Job will be considered failed.
-				if maxAllocTime < parsedAlloc.AllocationTime {
-					maxAllocTime = parsedAlloc.AllocationTime
-				}
 			}
-		}
-
-		// The Job starting time is whenever it was started to be processed in a goroutine
-		// (added to the State, eval created, scheduling processed). And the Job final time
-		// is the time it took to the longest Allocation to place. If no Allocation placed,
-		// the finishing time will be -1. All these times are in nanoseconds, since Allocation
-		// timestamps are in UNIX nanoseconds.
-		jobMetrics.StartTimestamp = startTimestamp
-		if maxAllocTime != -1 {
-			jobMetrics.FinalTimestamp = startTimestamp + maxAllocTime
-		} else {
-			jobMetrics.FinalTimestamp = -1
 		}
 
 		// Now, to determine the real amount of failing Allocations, lets calculate for a
@@ -154,14 +140,14 @@ func getMetrics(simSnapshot *SimSnapshot) *JobEvaluationMetrics {
 		}
 	}
 
-	changedNodes := make(map[string]bool)
+	changedNodesMap := make(map[string]bool)
 	for _, alloc := range successfulAllocsMetrics {
 		// Store uniquely the Node IDs associated with successful Allocations
 		// after the current Job scheduling has been done.
-		changedNodes[alloc.NodeID] = true
+		changedNodesMap[alloc.NodeID] = true
 	}
 
-	for nodeID := range changedNodes {
+	for nodeID := range changedNodesMap {
 		// Now, for those Nodes affected during this iteration, calculate their
 		// currently available resources. We first find out which were the Nodes
 		// affected during this iteration to avoid doing this calculation for all
@@ -170,18 +156,18 @@ func getMetrics(simSnapshot *SimSnapshot) *JobEvaluationMetrics {
 		noErr(err)
 		// Get the resources currently available to this Node.
 		available := getAvailable(node, state)
-		nodeUsageChange := &NodeUsageChange{
+		changedNode := &ChangedNode{
 			ID:        node.ID,
 			Available: available,
 		}
 		// This list will only contain updates to the resource usage of Nodes
 		// affected by placements during this iteration.
-		nodeUsageChanges = append(nodeUsageChanges, nodeUsageChange)
+		changedNodes = append(changedNodes, changedNode)
 	}
 
 	return &JobEvaluationMetrics{
-		JobMetrics:              jobMetrics,
-		NodeUsageChanges:        nodeUsageChanges,
+		EvaluatedJob:            jobMetrics,
+		ChangedNodes:            changedNodes,
 		FailedAllocsMetrics:     failedAllocsMetrics,
 		SuccessfulAllocsMetrics: successfulAllocsMetrics,
 	}

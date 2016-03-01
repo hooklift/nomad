@@ -16,10 +16,12 @@ type SimSnapshot struct {
 	State *state.StateStore
 	// The list of Node IDs inside of the cluster at a given iteration.
 	NodeIDs []string
-	// The UNIX timestamp at the moment of processing the Job. This together with the allocation
-	// time is helpful for determining the real order of Job processings given that each processing
-	// is done in a separate goroutine.
-	Time int64
+	// The UNIX timestamp in nanoseconds when the Job's own goroutine started running.
+	SubmitTimeStamp int64
+	// The UNIX timestamp in nanoseconds at the moment of scheduling of the Job.
+	StartTimeStamp int64
+	// The UNIX timestamp in nanoseconds after the Job has been processed.
+	FinalTimeStamp int64
 }
 
 // This struct will hold the metrics of a single Node, which will be later serialized
@@ -35,7 +37,7 @@ type SimNode struct {
 
 // This struct will hold the updates of usage of a single Node. These values change
 // after Allocations, so associate these to Job evaluations.
-type NodeUsageChange struct {
+type ChangedNode struct {
 	ID        string        `json:"id"`
 	Available *SimResources `json:"available"`
 }
@@ -50,15 +52,16 @@ type SimResources struct {
 }
 
 // A certain relevant metrics (as of now) for a given Job.
-type JobMetrics struct {
-	ID             string   `json:"job_id"`
-	Datacenters    []string `json:"datacenters"`
-	Region         string   `json:"region"`
-	Name           string   `json:"job_name"`
-	Type           string   `json:"job_type"`
-	TaskGroups     []string `json:"task_groups"`
-	StartTimestamp int64    `json:"start_time_stamp"`
-	FinalTimestamp int64    `json:"final_time_stamp"`
+type EvaluatedJob struct {
+	JobID           string   `json:"job_id"`
+	Datacenters     []string `json:"datacenters"`
+	Region          string   `json:"region"`
+	Name            string   `json:"job_name"`
+	Type            string   `json:"job_type"`
+	TaskGroups      []string `json:"task_groups"`
+	SubmitTimeStamp int64    `json:"submit_time_stamp"`
+	StartTimeStamp  int64    `json:"start_time_stamp"`
+	FinalTimeStamp  int64    `json:"final_time_stamp"`
 }
 
 // A certain relevant metrics (as of now) for a given Allocation.
@@ -127,13 +130,13 @@ func getAvailable(node *structs.Node, state *state.StateStore) *SimResources {
 
 // Get the most relevant Job information from a Job struct.
 // Relevant as in helpful for evaluating placement and bin packing.
-func ParseJobMetrics(job *structs.Job) *JobMetrics {
+func ParseEvaluatedJob(job *structs.Job) *EvaluatedJob {
 	var taskGroups []string
 	for _, taskGroup := range job.TaskGroups {
 		taskGroups = append(taskGroups, taskGroup.Name)
 	}
-	return &JobMetrics{
-		ID:          job.ID,
+	return &EvaluatedJob{
+		JobID:       job.ID,
 		Region:      job.Region,
 		Datacenters: job.Datacenters,
 		Name:        job.Name,
@@ -163,10 +166,10 @@ func ParseAllocMetrics(alloc *structs.Allocation) *AllocMetrics {
 
 // The metrics of the cluster for a given iteration ~ Job processing.
 type JobEvaluationMetrics struct {
-	JobMetrics              *JobMetrics        `json:"evaluated_job"`
-	SuccessfulAllocsMetrics []*AllocMetrics    `json:"successful_allocs_metrics"`
-	FailedAllocsMetrics     []*AllocMetrics    `json:"failed_allocs_metrics"`
-	NodeUsageChanges        []*NodeUsageChange `json:"node_usage_changes"`
+	EvaluatedJob            *EvaluatedJob   `json:"evaluated_job"`
+	SuccessfulAllocsMetrics []*AllocMetrics `json:"successful_allocs_metrics"`
+	FailedAllocsMetrics     []*AllocMetrics `json:"failed_allocs_metrics"`
+	ChangedNodes            []*ChangedNode  `json:"changed_nodes"`
 }
 
 // The output of the simulator after processing all Jobs.

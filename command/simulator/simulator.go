@@ -8,7 +8,6 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -57,13 +56,12 @@ func (c *SimCommand) Run(args []string) int {
 	// Path for the output file.
 	var outFile string
 
+	// Parse the flags.
 	flags := flag.NewFlagSet("sim", flag.ContinueOnError)
 	flags.Usage = func() { c.Ui.Error(c.Help()) }
-
 	flags.StringVar(&nodeListPath, "nodeList", "", "nodeList")
 	flags.StringVar(&jobListPath, "jobList", "", "jobList")
 	flags.StringVar(&outFile, "outFile", "", "outfile")
-
 	if err := flags.Parse(args); err != nil {
 		return 1
 	}
@@ -86,13 +84,14 @@ func (c *SimCommand) Run(args []string) int {
 		return 1
 	}
 
+	// If no path was defined for output file, use default name.
 	if outFile == "" {
 		outFile = "simulator_output.json"
 	}
 
-	// Stores the Nodes' pointers.
+	// Stores the Nodes' structs pointers.
 	var nodes []*structs.Node
-	// Stores the the Jobs' pointers.
+	// Stores the the Jobs' structs pointers.
 	var jobs []*structs.Job
 
 	// Stores the node IDs, useful for retrieving Nodes from the harness internal state
@@ -124,12 +123,8 @@ func (c *SimCommand) Run(args []string) int {
 	// specific features, in our case, scheduling and placement simulation,
 	// but with user inputted configurations instead of mocked values.
 	h := NewSimHarness()
-	// Initialize the mutex. This will lock Job scheduling operations.
-	// Without this, and while using the harness logic, a problem arises in
-	// which two Jobs are being concurrently allocated and they result in a
-	// situation of resource over-consumption for a given Node.
-	mutex := &sync.Mutex{}
 
+	// Upsert the Nodes into the harness State
 	for _, node := range nodes {
 		noErr(h.State.UpsertNode(h.NextIndex(), node))
 		nodeIDs = append(nodeIDs, node.ID)
@@ -141,22 +136,26 @@ func (c *SimCommand) Run(args []string) int {
 	// input, but each one in a separate goroutine, so the real order in
 	// which they finish processing is variable.
 	// After each Job is processed, metrics will be extracted from
-	// the present cluster state.
+	// the cluster state at that moment.
 	// ...
 	// This is a channel where a snapshot of the simulator will be sent for
 	// metrics extraction after each job has processed.
 	snapshotChan := make(chan *SimSnapshot)
 
+	// Initialize the mutex. This will lock Job scheduling operations.
+	// Without this, and while using the harness logic, a problem arises in
+	// which two Jobs are being concurrently allocated in separate goroutines
+	// and they result in a situation of resource over-consumption for a given
+	// Node.
+	mutex := &sync.Mutex{}
+
 	// For each job...
 	for _, job := range jobs {
+		submitTimeStamp := int64(time.Now().UnixNano())
 		// Run a separate goroutine...
-		go func(job *structs.Job) {
+		go func(job *structs.Job, submitTimeStamp int64) {
 			// Here's where starts what counts as 'processing' a Job, which comprises
-			// adding it to the State, and then scheduling it. Start counting time from
-			// this point in time, until it is done scheduling. The 'finishing' time is
-			// the start time + the time it takes to the last Allocation to take place
-			// (each Allocation has a time, so add whichever is the longest time).
-			startTimestamp := int64(time.Now().UnixNano())
+			// adding it to the State, and then scheduling it.
 
 			// Upsert into the Harness Jobs parsed from configuration files.
 			noErr(h.State.UpsertJob(h.NextIndex(), job))
@@ -174,7 +173,9 @@ func (c *SimCommand) Run(args []string) int {
 			// which two Jobs are being concurrently allocated and they result in a
 			// situation of resource over-consumption for a given Node.
 			mutex.Lock()
-
+			// The timestamp when the Job entered the locked part of evaluation,
+			// which is the scheduling process.
+			startTimeStamp := int64(time.Now().UnixNano())
 			// The usual rules apply for allocation:
 			// Jobs must belong to same region of nodes, otherwise won't allocate.
 			// Jobs must have a datacenter related to the one in the nodes, otherwise won't allocate.
@@ -195,24 +196,28 @@ func (c *SimCommand) Run(args []string) int {
 			case structs.JobTypeService:
 				noErr(h.Process(scheduler.NewServiceScheduler, eval))
 			}
-
+			finalTimeStamp := int64(time.Now().UnixNano())
 			// Unlock the mutex after scheduling is done for a particular Job.
 			mutex.Unlock()
 
 			// A snapshot of the simulator after each Job has been processed contains the
-			// ID to its Nodes, the plans, and the internal state.
+			// ID to its Nodes, the plans, and the internal state, also the time stamps at
+			// which the Job goroutine was launched/submitted, and when the Job was started
+			// to be scheduled and ended being scheduled.
 			simSnapshot := &SimSnapshot{
-				Eval:    eval,
-				Plans:   h.Plans,
-				State:   h.State,
-				NodeIDs: nodeIDs,
-				Time:    startTimestamp,
+				Eval:            eval,
+				Plans:           h.Plans,
+				State:           h.State,
+				NodeIDs:         nodeIDs,
+				SubmitTimeStamp: submitTimeStamp,
+				StartTimeStamp:  startTimeStamp,
+				FinalTimeStamp:  finalTimeStamp,
 			}
 
 			// Send the snapshot to a metrics evaluation loop so that metrics can be
 			// extracted concurrently.
 			snapshotChan <- simSnapshot
-		}(job)
+		}(job, submitTimeStamp)
 	}
 
 	var outputNodes []*SimNode
@@ -235,28 +240,17 @@ func (c *SimCommand) Run(args []string) int {
 
 	// Structure to serialize the final simulator output.
 	simOutput := &SimOutput{
-		Nodes:          outputNodes,
+		// The Nodes that were part of the simulation (for now invariable).
+		Nodes: outputNodes,
+		// The Job evaluations that were part of the simulation.
 		JobEvaluations: jobEvaluations,
 	}
-
-	sort.Sort(ByFinalTimestamp(jobEvaluations))
 
 	marshald, _ := json.MarshalIndent(simOutput, "", "\t")
 	err := ioutil.WriteFile(outFile, marshald, 0755)
 	noErr(err)
+
 	return 0
-}
-
-type ByFinalTimestamp []*JobEvaluationMetrics
-
-func (je ByFinalTimestamp) Len() int {
-	return len(je)
-}
-func (je ByFinalTimestamp) Swap(i, j int) {
-	je[i], je[j] = je[j], je[i]
-}
-func (je ByFinalTimestamp) Less(i, j int) bool {
-	return je[i].JobMetrics.FinalTimestamp < je[j].JobMetrics.FinalTimestamp
 }
 
 // readPaths reads a whole file containing paths to files as lines into memory
