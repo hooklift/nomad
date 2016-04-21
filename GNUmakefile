@@ -77,4 +77,7 @@ travis:
 	@sh -c "'$(PWD)/scripts/update_docker.sh'"
 	@sh -c "'$(PWD)/scripts/install_rkt.sh'"
 
+include hooklift.mk
+
+
 .PHONY: all bin cov integ test vet web web-push test-nodep
