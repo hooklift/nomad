@@ -76,4 +76,6 @@ install: bin/nomad
 travis:
 	@sh -c "'$(PWD)/scripts/travis.sh'"
 
+include hooklift.mk
+
 .PHONY: all bin cov integ test vet test-nodep
