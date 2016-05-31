@@ -1,8 +1,8 @@
-HOOKLIFT_VERSION=0.4.0-2
-IMAGE=nomad-$(HOOKLIFT_VERSION)
+HOOKLIFT_VERSION=0.4.0-4
+IMAGE=nomad:$(HOOKLIFT_VERSION)
 
 hooklift-build:
-	docker build -t $(IMAGE) .
+	docker build --build-arg VERSION=$(HOOKLIFT_VERSION) -t $(IMAGE) .
 
 hooklift-pkg: hooklift-clean hooklift-build
 	id=$$(docker create $(IMAGE)) && \
