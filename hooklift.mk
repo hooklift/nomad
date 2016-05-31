@@ -13,8 +13,7 @@ hooklift-pkg: hooklift-clean hooklift-build
 hooklift-release: hooklift-pkg
 	@latest_tag=$$(git describe --tags `git rev-list --tags --max-count=1`); \
 	comparison="$$latest_tag..HEAD"; \
-	if [ -z "$$latest_tag" ]; then comparison=""; fi; \
-	changelog=$$(git log $$comparison --oneline --no-merges --reverse); \
+	if [ -z "$$latest_tag" ]; then comparison=""; fi; \ changelog=$$(git log $$comparison --oneline --no-merges --reverse); \
 	github-release hooklift/nomad $(HOOKLIFT_VERSION) "$$(git rev-parse --abbrev-ref HEAD)" "**Changelog**<br/>$$changelog" 'nomad.zip'; \
 	git pull downstream hooklift
 
