@@ -1,4 +1,4 @@
-HOOKLIFT_VERSION=0.3.2-6
+HOOKLIFT_VERSION=0.4.0-1
 
 hooklift-build:
 	docker build -t nomad .
