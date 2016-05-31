@@ -54,3 +54,4 @@ TODO.md
 .terraform
 *.tfstate*
 rkt-*
+*.tar.gz
