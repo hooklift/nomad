@@ -80,4 +80,3 @@ include hooklift.mk
 
 .PHONY: all bin cov integ test vet test-nodep
 
-
