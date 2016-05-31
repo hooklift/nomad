@@ -1,10 +1,11 @@
 HOOKLIFT_VERSION=0.4.0-1
+IMAGE=nomad-$(HOOKLIFT_VERSION)
 
 hooklift-build:
-	docker build -t nomad .
+	docker build -t $(IMAGE) .
 
 hooklift-pkg: hooklift-clean hooklift-build
-	id=$$(docker create nomad) && \
+	id=$$(docker create $(IMAGE)) && \
 	docker cp $$id:/work/src/github.com/hashicorp/nomad/bin/nomad bin/nomad \
 	&& docker rm $$id && \
 	cd bin && zip ../nomad.zip nomad
