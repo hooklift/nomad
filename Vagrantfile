@@ -10,7 +10,7 @@ GO_VERSION="1.7.4"
 
 # Install Prereq Packages
 sudo apt-get update
-sudo apt-get install -y build-essential curl git-core mercurial bzr libpcre3-dev pkg-config zip default-jre qemu libc6-dev-i386 silversearcher-ag jq htop vim unzip liblxc1 lxc-dev
+sudo apt-get install -y build-essential curl git-core mercurial bzr libpcre3-dev pkg-config zip default-jre qemu libc6-dev-i386 silversearcher-ag jq htop vim unzip liblxc1 lxc-dev systemd-container
 
 # Setup go, for development of Nomad
 SRCROOT="/opt/go"
@@ -72,7 +72,7 @@ def configureVM(vmCfg, vmParams={
                   numCPUs: DEFAULT_CPU_COUNT,
                 }
                )
-  vmCfg.vm.box = "cbednarski/ubuntu-1404"
+  vmCfg.vm.box = "ubuntu/xenial64"
 
   vmCfg.vm.provision "shell", inline: $script, privileged: false
   vmCfg.vm.synced_folder '.', '/opt/gopath/src/github.com/hashicorp/nomad'
