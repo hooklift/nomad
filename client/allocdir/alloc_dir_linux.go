@@ -91,24 +91,20 @@ func (d *AllocDir) MountSpecialDirs(taskDir string) error {
 }
 
 // unmountSpecialDirs unmounts the dev and proc file system from the chroot
-func (d *AllocDir) unmountSpecialDirs(taskDir string) error {
+func (d *AllocDir) UnmountSpecialDirs(taskDir string) error {
+	dirs := []string{"dev", "proc"}
 	errs := new(multierror.Error)
-	dev := filepath.Join(taskDir, "dev")
-	if d.pathExists(dev) {
-		if err := syscall.Unmount(dev, 0); err != nil {
-			errs = multierror.Append(errs, fmt.Errorf("Failed to unmount dev (%v): %v", dev, err))
-		} else if err := os.RemoveAll(dev); err != nil {
-			errs = multierror.Append(errs, fmt.Errorf("Failed to delete dev directory (%v): %v", dev, err))
-		}
-	}
 
-	// Unmount proc.
-	proc := filepath.Join(taskDir, "proc")
-	if d.pathExists(proc) {
-		if err := syscall.Unmount(proc, 0); err != nil {
-			errs = multierror.Append(errs, fmt.Errorf("Failed to unmount proc (%v): %v", proc, err))
-		} else if err := os.RemoveAll(proc); err != nil {
-			errs = multierror.Append(errs, fmt.Errorf("Failed to delete proc directory (%v): %v", dev, err))
+	for _, dir := range dirs {
+		dirPath := filepath.Join(taskDir, dir)
+		if !d.pathExists(dirPath) {
+			continue
+		}
+
+		if err := syscall.Unmount(dirPath, 0); err != nil {
+			errs = multierror.Append(errs, fmt.Errorf("Failed to unmount %q (%v): %v", dir, dirPath, err))
+		} else if err := os.RemoveAll(dirPath); err != nil {
+			errs = multierror.Append(errs, fmt.Errorf("Failed to delete %q directory (%v): %v", dir, dirPath, err))
 		}
 	}
 

@@ -71,8 +71,10 @@ func (e *UniversalExecutor) applyLimits(pid int) error {
 	manager := getCgroupManager(e.resConCtx.groups, nil)
 	if err := manager.Apply(pid); err != nil {
 		e.logger.Printf("[ERR] executor: error applying pid to cgroup: %v", err)
-		if er := e.removeChrootMounts(); er != nil {
-			e.logger.Printf("[ERR] executor: error removing chroot: %v", er)
+		if e.command.FSIsolation {
+			if er := e.removeChrootMounts(); er != nil {
+				e.logger.Printf("[ERR] executor: error removing chroot: %v", er)
+			}
 		}
 		return err
 	}
@@ -83,8 +85,10 @@ func (e *UniversalExecutor) applyLimits(pid int) error {
 		if er := DestroyCgroup(e.resConCtx.groups, e.resConCtx.cgPaths, os.Getpid()); er != nil {
 			e.logger.Printf("[ERR] executor: error destroying cgroup: %v", er)
 		}
-		if er := e.removeChrootMounts(); er != nil {
-			e.logger.Printf("[ERR] executor: error removing chroot: %v", er)
+		if e.command.FSIsolation {
+			if er := e.removeChrootMounts(); er != nil {
+				e.logger.Printf("[ERR] executor: error removing chroot: %v", er)
+			}
 		}
 		return err
 	}
